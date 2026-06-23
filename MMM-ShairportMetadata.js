@@ -21,7 +21,6 @@ Module.register("MMM-ShairportMetadata", {
 
   start: function () {
     Log.info("Starting module: " + this.name);
-    this.data.header = "Nothing playing";
     this.metadata = {};
     this.albumart = null;
     this.playing = false;      // true = playing, false = paused
@@ -132,7 +131,6 @@ Module.register("MMM-ShairportMetadata", {
 
     wrapper.className = this.config.classes ? this.config.classes : "small";
     wrapper.style.textAlign = alignment;
-    this.data.header = "Somebody is now playing";
 
     var metadata = document.createElement("div");
 
@@ -193,6 +191,11 @@ Module.register("MMM-ShairportMetadata", {
 
     wrapper.appendChild(metadata);
     return wrapper;
+  },
+
+  // Suppress the module header entirely (ignores any header set in config.js).
+  getHeader: function () {
+    return "";
   },
 
   getStyles: function () {
