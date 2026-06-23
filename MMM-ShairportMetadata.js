@@ -5,8 +5,8 @@
  *
  * By Prateek Sureka <surekap@gmail.com>  — MIT Licensed.
  * Progress bar forked by ChielChiel.
- * Play/pause + progress fixes: real pause state, correct 48k sample rate,
- * and wall-clock interpolation so the bar advances smoothly and freezes when paused.
+ * Fixes: real play/pause state, correct 48k sample rate, wall-clock progress
+ * interpolation, and a persistent client-name line.
  */
 
 Module.register("MMM-ShairportMetadata", {
@@ -15,7 +15,8 @@ Module.register("MMM-ShairportMetadata", {
     metadataPipe: "/tmp/shairport-sync-metadata",
     alignment: "center",
     sampleRate: 48000,   // Shairport Sync v5 / AirPlay 2 default. Use 44100 for classic AirPlay 1.
-    hideAfter: 120       // seconds without any update before hiding (0 = never)
+    hideAfter: 120,      // seconds without any update before hiding (0 = never)
+    showClient: true     // show "♪ <device>" line
   },
 
   start: function () {
@@ -54,6 +55,8 @@ Module.register("MMM-ShairportMetadata", {
     if (Object.keys(payload).length === 0) {
       this.playing = false;
       this.stopped = true;
+      this.metadata = {};
+      this.albumart = null;
       this.updateDom(0);
       return;
     }
@@ -81,7 +84,7 @@ Module.register("MMM-ShairportMetadata", {
     }
     this.playing = nowPlaying;
 
-    // Merge so a pause/resume-only message never wipes Title/Artist.
+    // Merge so a pause/resume-only message never wipes Title/Artist/client.
     this.metadata = Object.assign(this.metadata || {}, payload);
 
     // New progress anchor whenever prgr arrives.
@@ -179,6 +182,14 @@ Module.register("MMM-ShairportMetadata", {
     artisttag.innerHTML = txt;
     artisttag.className = "xsmall";
     metadata.appendChild(artisttag);
+
+    // Client (who's playing)
+    if (this.config.showClient && this.metadata["client"]) {
+      var clienttag = document.createElement("div");
+      clienttag.innerHTML = "&#9834; " + this.metadata["client"];
+      clienttag.className = "xsmall dimmed";
+      metadata.appendChild(clienttag);
+    }
 
     wrapper.appendChild(metadata);
     return wrapper;
