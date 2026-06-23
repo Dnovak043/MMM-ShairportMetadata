@@ -1,4 +1,4 @@
-/* MMM-ShairportMetadata â€” Apple Music-inspired now-playing card */
+/* MMM-ShairportMetadata — Apple Music-inspired now-playing card */
 
 /* ---------- Card container ---------- */
 .MMM-ShairportMetadata .airplay-card {
@@ -19,7 +19,7 @@
   overflow: hidden;
 }
 
-/* Ambient glow behind the card â€” driven by a CSS variable set by JS */
+/* Ambient glow behind the card — driven by a CSS variable set by JS */
 .MMM-ShairportMetadata .airplay-card::before {
   content: "";
   position: absolute;
@@ -67,7 +67,7 @@
 }
 
 .MMM-ShairportMetadata .albumart-wrap.no-art::after {
-  content: "â™ª";
+  content: "♪";
   font-size: 90px;
   color: rgba(255,255,255,0.18);
 }
@@ -173,7 +173,39 @@
 }
 
 .MMM-ShairportMetadata .client-line::before {
-  content: "â–¶";
+  content: "▶";
   font-size: 9px;
   opacity: 0.5;
+}
+
+/* ============================================================
+   Enter / leave animations  (backInLeft / fadeOutLeft style)
+   Applied to .airplay-card by the module's JS.
+   ============================================================ */
+
+@keyframes airplayInLeft {
+  0%   { opacity: 0;   transform: translateX(-110%) scale(0.85); }
+  70%  { opacity: 1;   transform: translateX(14px)  scale(1.0); }
+  100% { opacity: 1;   transform: translateX(0)     scale(1); }
+}
+
+@keyframes airplayOutLeft {
+  0%   { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-110%); }
+}
+
+.MMM-ShairportMetadata .airplay-card.anim-in {
+  /* cubic-bezier overshoots slightly for the "back" feel */
+  animation: airplayInLeft 0.6s cubic-bezier(0.34, 1.30, 0.64, 1) both;
+}
+
+.MMM-ShairportMetadata .airplay-card.anim-out {
+  animation: airplayOutLeft 0.45s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .MMM-ShairportMetadata .airplay-card.anim-in,
+  .MMM-ShairportMetadata .airplay-card.anim-out {
+    animation: none;
+  }
 }
