@@ -16,7 +16,7 @@ Module.register("MMM-ShairportMetadata", {
     metadataPipe: "/tmp/shairport-sync-metadata",
     alignment: "center",
     sampleRate: 48000,
-    hideAfter: 120,
+    hideAfter: 0,        // 0 = never auto-hide; rely on the pend (disconnect) event only
     showClient: true,
     leaveDurationMs: 470
   },
