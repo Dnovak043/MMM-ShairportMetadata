@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# Python 3 port of MMM-ShairportMetadata's shairport-metadata.py
+# Python 3 decoder for MMM-ShairportMetadata.
 # Reads the shairport-sync metadata pipe on stdin and emits JSON lines.
+# Adds reliable play/pause signalling on top of the original track/art handling.
 import re, sys
 import base64
 import binascii
@@ -48,6 +49,11 @@ def text(data):
     return data.decode('utf-8', 'replace')
 
 
+def emit(obj):
+    print(json.dumps(obj))
+    sys.stdout.flush()
+
+
 if __name__ == "__main__":
     metadata = {}
     while True:
@@ -65,7 +71,7 @@ if __name__ == "__main__":
                 continue
             data = read_data(sys.stdin.readline(), length)
 
-        # Everything read
+        # --- Track metadata (DMAP "core" tags) ---
         if typ == "core":
             if code == "asal":
                 metadata['Album Name'] = text(data)
@@ -73,31 +79,43 @@ if __name__ == "__main__":
                 metadata['Artist'] = text(data)
             elif code == "minm":
                 metadata['Title'] = text(data)
+            elif code == "caps":
+                # One-byte play state. Observed: 1 = playing. If a bundle ever
+                # reports a non-playing value, mark paused. We never force "playing"
+                # from caps (the events below do that) to avoid false resumes.
+                if len(data) >= 1 and data[0] != 1:
+                    metadata['pause'] = True
 
+        # --- shairport-sync session events ("ssnc") ---
         if typ == "ssnc" and code == "snam":
             metadata['snam'] = text(data)
         if typ == "ssnc" and code == "prgr":
             metadata['prgr'] = text(data)
+
+        # Flush fires on pause (also on seek/track-change). Treat as paused but
+        # keep the track on screen; a real stop comes through 'pend'.
         if typ == "ssnc" and code == "pfls":
             metadata = {}
-            print(json.dumps({}))
-            sys.stdout.flush()
+            emit({"pause": True})
+
+        # Stream ended / source disconnected -> tell the UI to hide.
         if typ == "ssnc" and code == "pend":
             metadata = {}
-            print(json.dumps({}))
-            sys.stdout.flush()
-        if typ == "ssnc" and code == "prsm":
-            metadata['pause'] = False
-        if typ == "ssnc" and code == "pbeg":
-            metadata['pause'] = False
+            emit({})
+
+        # Resume / begin / first-audio-frame -> definitely playing.
+        if typ == "ssnc" and code in ("prsm", "pbeg", "pffr"):
+            emit({"pause": False})
+
+        # Cover art.
         if typ == "ssnc" and code == "PICT":
             if len(data) == 0:
-                print(json.dumps({"image": ""}))
+                emit({"image": ""})
             else:
                 mime = guessImageMime(data)
-                print(json.dumps({"image": "data:" + mime + ";base64," + base64.b64encode(data).decode('ascii')}))
-            sys.stdout.flush()
+                emit({"image": "data:" + mime + ";base64," + base64.b64encode(data).decode('ascii')})
+
+        # End of a metadata bundle: a complete track update is ready.
         if typ == "ssnc" and code == "mden":
-            print(json.dumps(metadata))
-            sys.stdout.flush()
+            emit(metadata)
             metadata = {}
