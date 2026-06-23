@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Python 3 decoder for MMM-ShairportMetadata.
 # Reads the shairport-sync metadata pipe on stdin and emits JSON lines.
-# Adds reliable play/pause signalling on top of the original track/art handling.
+# Handles track info, cover art, play/pause (incl. AirPlay 2 'paus'), and a
+# persistent client name/model that survives the per-track reset.
 import re, sys
 import base64
 import binascii
@@ -55,7 +56,8 @@ def emit(obj):
 
 
 if __name__ == "__main__":
-    metadata = {}
+    metadata = {}    # per-track, cleared after every bundle
+    client = {}      # persistent across tracks (client name / model)
     while True:
         line = sys.stdin.readline()
         if not line:  # EOF
@@ -80,27 +82,31 @@ if __name__ == "__main__":
             elif code == "minm":
                 metadata['Title'] = text(data)
             elif code == "caps":
-                # One-byte play state. Observed: 1 = playing. If a bundle ever
-                # reports a non-playing value, mark paused. We never force "playing"
-                # from caps (the events below do that) to avoid false resumes.
+                # One-byte play state. Observed: 1 = playing. Only ever flag
+                # paused from caps; resumes are driven by the events below.
                 if len(data) >= 1 and data[0] != 1:
                     metadata['pause'] = True
 
-        # --- shairport-sync session events ("ssnc") ---
+        # --- Persistent client identity (sent once, at connect) ---
         if typ == "ssnc" and code == "snam":
-            metadata['snam'] = text(data)
+            client['client'] = text(data)
+        if typ == "ssnc" and code == "cmod":
+            client['model'] = text(data)
+
+        # --- Progress ---
         if typ == "ssnc" and code == "prgr":
             metadata['prgr'] = text(data)
 
-        # Flush fires on pause (also on seek/track-change). Treat as paused but
-        # keep the track on screen; a real stop comes through 'pend'.
+        # Pause: 'paus' (AirPlay 2) or 'pfls' (classic flush). Keep the track
+        # on screen; a real stop comes through 'pend'.
         if typ == "ssnc" and code in ("paus", "pfls"):
             metadata = {}
             emit({"pause": True})
 
-        # Stream ended / source disconnected -> tell the UI to hide.
+        # Stream ended / source disconnected -> hide.
         if typ == "ssnc" and code == "pend":
             metadata = {}
+            client = {}
             emit({})
 
         # Resume / begin / first-audio-frame -> definitely playing.
@@ -115,7 +121,9 @@ if __name__ == "__main__":
                 mime = guessImageMime(data)
                 emit({"image": "data:" + mime + ";base64," + base64.b64encode(data).decode('ascii')})
 
-        # End of a metadata bundle: a complete track update is ready.
+        # End of a metadata bundle: emit track info plus persistent client info.
         if typ == "ssnc" and code == "mden":
-            emit(metadata)
+            out = dict(metadata)
+            out.update(client)
+            emit(out)
             metadata = {}
