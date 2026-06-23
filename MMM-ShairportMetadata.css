@@ -1,17 +1,179 @@
+/* MMM-ShairportMetadata — Apple Music-inspired now-playing card */
+
+/* ---------- Card container ---------- */
+.MMM-ShairportMetadata .airplay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 280px;
+  padding: 24px 20px 18px;
+  border-radius: 22px;
+  background: rgba(30, 30, 32, 0.82);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  box-shadow:
+    0 8px 40px rgba(0,0,0,0.55),
+    0 2px 8px rgba(0,0,0,0.35);
+  font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Ambient glow behind the card — driven by a CSS variable set by JS */
+.MMM-ShairportMetadata .airplay-card::before {
+  content: "";
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    var(--art-glow, rgba(180,100,200,0.25)) 0%,
+    transparent 70%
+  );
+  z-index: 0;
+  pointer-events: none;
+}
+
+.MMM-ShairportMetadata .airplay-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Album art ---------- */
+.MMM-ShairportMetadata .albumart-wrap {
+  width: 220px;
+  height: 220px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.6),
+    0 4px 16px rgba(0,0,0,0.4);
+  flex-shrink: 0;
+}
+
+.MMM-ShairportMetadata .albumart-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Placeholder when no art is available */
+.MMM-ShairportMetadata .albumart-wrap.no-art {
+  background: rgba(255,255,255,0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.MMM-ShairportMetadata .albumart-wrap.no-art::after {
+  content: "♪";
+  font-size: 72px;
+  color: rgba(255,255,255,0.18);
+}
+
+/* ---------- Track info ---------- */
+.MMM-ShairportMetadata .track-info {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.MMM-ShairportMetadata .track-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+
+.MMM-ShairportMetadata .track-artist {
+  font-size: 15px;
+  font-weight: 500;
+  color: #fc3c44;   /* Apple Music red/pink accent */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.MMM-ShairportMetadata .track-album {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.38);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+/* ---------- Progress bar ---------- */
+.MMM-ShairportMetadata .progress-wrap {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
 .MMM-ShairportMetadata progress[value] {
-	-webkit-appearance: none;
-   	appearance: none;
-    color: red;
-		width: 150px;
-    border: 1px solid white;
-    border-radius: 10px;
-    height: 5px;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border: none;
+  border-radius: 2px;
+  display: block;
+  background: rgba(255,255,255,0.15);
 }
 
 .MMM-ShairportMetadata progress[value]::-webkit-progress-bar {
-	background-color: black;
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
 }
 
 .MMM-ShairportMetadata progress[value]::-webkit-progress-value {
-	background-color: white;
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+.MMM-ShairportMetadata progress[value]::-moz-progress-bar {
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+/* ---------- Time labels ---------- */
+.MMM-ShairportMetadata .progress-times {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.45);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  margin-top: 5px;
+}
+
+.MMM-ShairportMetadata .progress-times .paused-badge {
+  color: rgba(255,255,255,0.3);
+  font-style: italic;
+}
+
+/* ---------- Client line ---------- */
+.MMM-ShairportMetadata .client-line {
+  margin-top: 14px;
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.28);
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.MMM-ShairportMetadata .client-line::before {
+  content: "▶";
+  font-size: 8px;
+  opacity: 0.5;
 }
