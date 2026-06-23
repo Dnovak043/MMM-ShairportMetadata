@@ -8,9 +8,10 @@
   width: 330px;
   padding: 18px 15px 20px;
   border-radius: 24px;
-  background: rgba(30, 30, 32, 0.82);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
+  /* Solid translucent fill instead of backdrop-filter blur:
+     blur is re-rasterized every frame during animation and wrecks
+     smoothness on the Pi GPU. On a dark mirror it adds little anyway. */
+  background: rgba(28, 28, 30, 0.92);
   box-shadow:
     0 8px 40px rgba(0,0,0,0.55),
     0 2px 8px rgba(0,0,0,0.35);
@@ -58,7 +59,6 @@
   display: block;
 }
 
-/* Placeholder when no art is available */
 .MMM-ShairportMetadata .albumart-wrap.no-art {
   background: rgba(255,255,255,0.07);
   display: flex;
@@ -94,7 +94,7 @@
 .MMM-ShairportMetadata .track-artist {
   font-size: 18px;
   font-weight: 500;
-  color: #fc3c44;   /* Apple Music red/pink accent */
+  color: #fc3c44;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -110,36 +110,32 @@
   margin-top: 3px;
 }
 
-/* ---------- Progress bar ---------- */
+/* ---------- Progress bar (div + transform, GPU-driven) ---------- */
 .MMM-ShairportMetadata .progress-wrap {
   width: 100%;
   margin-bottom: 4px;
 }
 
-.MMM-ShairportMetadata progress[value] {
-  -webkit-appearance: none;
-  appearance: none;
+.MMM-ShairportMetadata .progress-track {
+  position: relative;
   width: 100%;
   height: 6px;
-  border: none;
-  border-radius: 3px;
-  display: block;
-  background: rgba(255,255,255,0.15);
-}
-
-.MMM-ShairportMetadata progress[value]::-webkit-progress-bar {
   background: rgba(255,255,255,0.15);
   border-radius: 3px;
+  overflow: hidden;
 }
 
-.MMM-ShairportMetadata progress[value]::-webkit-progress-value {
+.MMM-ShairportMetadata .progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 100%;
   background: #ffffff;
   border-radius: 3px;
-}
-
-.MMM-ShairportMetadata progress[value]::-moz-progress-bar {
-  background: #ffffff;
-  border-radius: 3px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;   /* promote to its own compositor layer */
 }
 
 /* ---------- Time labels ---------- */
@@ -180,13 +176,14 @@
 
 /* ============================================================
    Enter / leave animations  (backInLeft / fadeOutLeft style)
-   Applied to .airplay-card by the module's JS.
+   Only transform + opacity (compositor-friendly). will-change
+   gives the card its own GPU layer so motion stays smooth.
    ============================================================ */
 
 @keyframes airplayInLeft {
-  0%   { opacity: 0;   transform: translateX(-110%) scale(0.85); }
-  70%  { opacity: 1;   transform: translateX(14px)  scale(1.0); }
-  100% { opacity: 1;   transform: translateX(0)     scale(1); }
+  0%   { opacity: 0; transform: translateX(-110%) scale(0.85); }
+  70%  { opacity: 1; transform: translateX(14px)  scale(1.0); }
+  100% { opacity: 1; transform: translateX(0)     scale(1); }
 }
 
 @keyframes airplayOutLeft {
@@ -195,17 +192,17 @@
 }
 
 .MMM-ShairportMetadata .airplay-card.anim-in {
-  /* cubic-bezier overshoots slightly for the "back" feel */
+  will-change: transform, opacity;
   animation: airplayInLeft 0.6s cubic-bezier(0.34, 1.30, 0.64, 1) both;
 }
 
 .MMM-ShairportMetadata .airplay-card.anim-out {
+  will-change: transform, opacity;
   animation: airplayOutLeft 0.45s ease both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .MMM-ShairportMetadata .airplay-card.anim-in,
-  .MMM-ShairportMetadata .airplay-card.anim-out {
-    animation: none;
-  }
+  .MMM-ShairportMetadata .airplay-card.anim-out { animation: none; }
+  .MMM-ShairportMetadata .progress-fill { transition: none !important; }
 }
