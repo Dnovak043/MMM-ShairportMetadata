@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
         # Flush fires on pause (also on seek/track-change). Treat as paused but
         # keep the track on screen; a real stop comes through 'pend'.
-        if typ == "ssnc" and code == "pfls":
+        if typ == "ssnc" and code in ("paus", "pfls"):
             metadata = {}
             emit({"pause": True})
 
