@@ -5,9 +5,9 @@
  *
  * By Prateek Sureka <surekap@gmail.com>  — MIT Licensed.
  * Progress bar forked by ChielChiel.
- * Fixes: real play/pause (paus event), correct 48k sample rate, wall-clock
- * progress interpolation, persistent client name, Apple Music-style UI,
- * build-once rendering with enter/leave animations.
+ * Smooth rendering: GPU compositor drives both the progress fill (one CSS
+ * transition over the remaining song) and the enter/leave animations.
+ * JS only handles state changes + cheap label text.
  */
 
 Module.register("MMM-ShairportMetadata", {
@@ -15,10 +15,10 @@ Module.register("MMM-ShairportMetadata", {
   defaults: {
     metadataPipe: "/tmp/shairport-sync-metadata",
     alignment: "center",
-    sampleRate: 48000,    // AirPlay 2 / Shairport v5 default. 44100 for classic AirPlay 1.
-    hideAfter: 120,       // seconds without any update before leaving (0 = never)
+    sampleRate: 48000,
+    hideAfter: 120,
     showClient: true,
-    leaveDurationMs: 470  // must be >= the anim-out CSS duration
+    leaveDurationMs: 470
   },
 
   start: function () {
@@ -33,20 +33,20 @@ Module.register("MMM-ShairportMetadata", {
     this.lastUpdate = this.now();
     this.glowColor = "rgba(140,80,200,0.28)";
 
-    // Rendering state
     this.cardEl = null;
     this.artWrap = null;
     this.artImg = null;
     this.refs = {};
-    this.visible = false;     // is the card currently in the DOM
-    this.appearing = false;   // request entrance animation on next getDom
-    this.leaving = false;     // currently animating out
+    this.visible = false;
+    this.appearing = false;
+    this.leaving = false;
     this.leaveTimer = null;
 
     this.sendSocketNotification("CONFIG", this.config);
 
-    // Lightweight tick: only mutates the progress nodes, never rebuilds the DOM.
-    setInterval(() => { this.tick(); }, 250);
+    // Cheap timer: updates only the time-label TEXT and the inactivity check.
+    // The bar itself is NOT driven here — the GPU animates it. 1s is plenty.
+    setInterval(() => { this.tick(); }, 1000);
   },
 
   now: function () { return new Date().getTime() / 1000; },
@@ -72,19 +72,16 @@ Module.register("MMM-ShairportMetadata", {
 
   getHeader: function () { return ""; },
 
-  // ── Incoming metadata ──────────────────────────────────────────────────────
   socketNotificationReceived: function (notification, payload) {
     if (notification !== "DATA") { return; }
     this.lastUpdate = this.now();
 
-    // Stream stopped / disconnected.
     if (Object.keys(payload).length === 0) {
       this.metadata = {};
       this.beginLeave();
       return;
     }
 
-    // Album art on its own line.
     if (payload.hasOwnProperty("image")) {
       this.albumart = payload["image"] ? payload["image"] : null;
       if (this.albumart) { this.extractGlow(this.albumart); }
@@ -93,17 +90,16 @@ Module.register("MMM-ShairportMetadata", {
       return;
     }
 
-    // Live session: cancel any in-progress leave.
     if (this.leaving) { this.cancelLeave(); }
     this.stopped = false;
 
     var wasPlaying = this.playing;
     var nowPlaying = payload.hasOwnProperty("pause") ? !payload["pause"] : true;
     if (wasPlaying && !nowPlaying) {
-      this.baseSec = this.elapsedNow();   // freeze where we are
+      this.baseSec = this.elapsedNow();
       this.anchor = this.now();
     } else if (!wasPlaying && nowPlaying) {
-      this.anchor = this.now();           // resume the clock
+      this.anchor = this.now();
     }
     this.playing = nowPlaying;
 
@@ -123,22 +119,16 @@ Module.register("MMM-ShairportMetadata", {
     }
 
     if (!this.visible) {
-      // Build the card and play the entrance animation.
       this.appearing = true;
       this.updateDom(0);
     } else {
-      // Card already on screen: mutate in place, no rebuild, no re-animation.
       this.updateCardContent();
     }
   },
 
-  // ── Leave / enter handling ─────────────────────────────────────────────────
   beginLeave: function () {
     if (!this.visible || !this.cardEl) {
-      this.stopped = true;
-      this.playing = false;
-      this.updateDom(0);
-      return;
+      this.stopped = true; this.playing = false; this.updateDom(0); return;
     }
     if (this.leaving) { return; }
     this.leaving = true;
@@ -146,11 +136,9 @@ Module.register("MMM-ShairportMetadata", {
     this.cardEl.classList.add("anim-out");
     var self = this;
     this.leaveTimer = setTimeout(function () {
-      self.leaving = false;
-      self.leaveTimer = null;
-      self.stopped = true;
-      self.playing = false;
-      self.updateDom(0);   // getDom now returns the hidden placeholder
+      self.leaving = false; self.leaveTimer = null;
+      self.stopped = true; self.playing = false;
+      self.updateDom(0);
     }, this.config.leaveDurationMs);
   },
 
@@ -160,23 +148,19 @@ Module.register("MMM-ShairportMetadata", {
     if (this.cardEl) { this.cardEl.classList.remove("anim-out"); }
   },
 
-  // ── Per-tick: progress + time labels only ──────────────────────────────────
   tick: function () {
     if (this.visible && !this.leaving && this.shouldHide()) {
-      this.metadata = {};
-      this.beginLeave();
-      return;
+      this.metadata = {}; this.beginLeave(); return;
     }
-    if (!this.visible || !this.cardEl || this.leaving || this.stopped) { return; }
-    this.updateProgress();
+    if (!this.visible || this.leaving || this.stopped) { return; }
+    this.renderLabels();
   },
 
-  updateProgress: function () {
-    if (!this.refs.progressEl) { return; }
-    var elapsed = this.elapsedNow();
+  // Text only — never touches the bar.
+  renderLabels: function () {
+    if (!this.refs.elapsedSpan) { return; }
     var total = this.songLenSec;
-    this.refs.progressEl.value = elapsed;
-    this.refs.progressEl.max = total > 0 ? total : 1;
+    var elapsed = this.elapsedNow();
     this.refs.elapsedSpan.textContent = this.secToTime(elapsed);
     if (!this.playing) {
       this.refs.rightSpan.className = "paused-badge";
@@ -184,6 +168,36 @@ Module.register("MMM-ShairportMetadata", {
     } else {
       this.refs.rightSpan.className = "";
       this.refs.rightSpan.textContent = "-" + this.secToTime(Math.max(0, total - elapsed));
+    }
+  },
+
+  // The smooth bit: one compositor transition from the current position to the
+  // end over the remaining duration. No per-frame JS.
+  syncBar: function () {
+    var fill = this.refs.fillEl;
+    if (!fill || this.songLenSec <= 0) { return; }
+    var total = this.songLenSec;
+    var elapsed = this.elapsedNow();
+    var f = Math.max(0, Math.min(1, elapsed / total));
+
+    // Freeze at the current position (no transition), and force the browser to
+    // commit it before we arm the long transition.
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(" + f + ")";
+    void fill.offsetWidth;  // reflow
+
+    if (this.playing) {
+      var remaining = Math.max(0, total - elapsed);
+      var self = this;
+      // Two rAFs so the frozen state paints first; otherwise the transition
+      // won't run (this also covers the just-built-not-yet-inserted case).
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (!self.playing || !self.refs.fillEl) { return; }
+          self.refs.fillEl.style.transition = "transform " + remaining + "s linear";
+          self.refs.fillEl.style.transform = "scaleX(1)";
+        });
+      });
     }
   },
 
@@ -199,7 +213,6 @@ Module.register("MMM-ShairportMetadata", {
     }
   },
 
-  // ── In-place content update (no rebuild) ───────────────────────────────────
   updateCardContent: function () {
     if (!this.cardEl) { return; }
     this.refs.titleEl.textContent = this.metadata["Title"] || "";
@@ -215,7 +228,8 @@ Module.register("MMM-ShairportMetadata", {
     } else {
       this.refs.clientEl.style.display = "none";
     }
-    this.updateProgress();
+    this.renderLabels();
+    this.syncBar();
   },
 
   setGlow: function (c) {
@@ -238,9 +252,7 @@ Module.register("MMM-ShairportMetadata", {
           var brightness = (d[i] + d[i + 1] + d[i + 2]) / 3;
           var max = Math.max(d[i], d[i + 1], d[i + 2]);
           var sat = max > 0 ? (max - Math.min(d[i], d[i + 1], d[i + 2])) / max : 0;
-          if (brightness > 20 && sat > 0.15) {
-            r += d[i]; g += d[i + 1]; b += d[i + 2]; count++;
-          }
+          if (brightness > 20 && sat > 0.15) { r += d[i]; g += d[i + 1]; b += d[i + 2]; count++; }
         }
         if (count > 0) {
           r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
@@ -253,7 +265,6 @@ Module.register("MMM-ShairportMetadata", {
     img.src = dataUrl;
   },
 
-  // ── Build the card (called by updateDom on appear / hide) ───────────────────
   getDom: function () {
     var wrapper = document.createElement("div");
     wrapper.style.textAlign =
@@ -261,11 +272,8 @@ Module.register("MMM-ShairportMetadata", {
         : this.config.alignment === "right" ? "right" : "center";
 
     if (this.stopped && !this.leaving) {
-      this.cardEl = null;
-      this.artWrap = null;
-      this.artImg = null;
-      this.refs = {};
-      this.visible = false;
+      this.cardEl = null; this.artWrap = null; this.artImg = null;
+      this.refs = {}; this.visible = false;
       wrapper.style.display = "none";
       return wrapper;
     }
@@ -274,14 +282,12 @@ Module.register("MMM-ShairportMetadata", {
     card.className = "airplay-card";
     card.style.display = "inline-flex";
 
-    // Album art
     var artWrap = document.createElement("div");
     artWrap.className = "albumart-wrap";
     var img = document.createElement("img");
     artWrap.appendChild(img);
     card.appendChild(artWrap);
 
-    // Track info
     var info = document.createElement("div");
     info.className = "track-info";
     var titleEl = document.createElement("div"); titleEl.className = "track-title";
@@ -290,10 +296,11 @@ Module.register("MMM-ShairportMetadata", {
     info.appendChild(titleEl); info.appendChild(artistEl); info.appendChild(albumEl);
     card.appendChild(info);
 
-    // Progress
     var progWrap = document.createElement("div"); progWrap.className = "progress-wrap";
-    var progressEl = document.createElement("progress"); progressEl.id = "musicProgress";
-    progWrap.appendChild(progressEl);
+    var track = document.createElement("div"); track.className = "progress-track";
+    var fillEl = document.createElement("div"); fillEl.className = "progress-fill";
+    track.appendChild(fillEl);
+    progWrap.appendChild(track);
     card.appendChild(progWrap);
 
     var times = document.createElement("div"); times.className = "progress-times";
@@ -302,22 +309,17 @@ Module.register("MMM-ShairportMetadata", {
     times.appendChild(elapsedSpan); times.appendChild(rightSpan);
     card.appendChild(times);
 
-    // Client
     var clientEl = document.createElement("div"); clientEl.className = "client-line";
     card.appendChild(clientEl);
 
-    // Store refs
     this.cardEl = card;
     this.artWrap = artWrap;
     this.artImg = img;
-    this.refs = { titleEl, artistEl, albumEl, progressEl, elapsedSpan, rightSpan, clientEl };
+    this.refs = { titleEl, artistEl, albumEl, fillEl, elapsedSpan, rightSpan, clientEl };
 
     this.updateCardContent();
 
-    if (this.appearing) {
-      card.classList.add("anim-in");
-      this.appearing = false;
-    }
+    if (this.appearing) { card.classList.add("anim-in"); this.appearing = false; }
 
     this.visible = true;
     wrapper.appendChild(card);
