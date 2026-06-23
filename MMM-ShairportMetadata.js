@@ -5,8 +5,8 @@
  *
  * By Prateek Sureka <surekap@gmail.com>  — MIT Licensed.
  * Progress bar forked by ChielChiel.
- * Fixes: real play/pause state, correct 48k sample rate, wall-clock progress
- * interpolation, and a persistent client-name line.
+ * Fixes: real play/pause (paus event), correct 48k sample rate, wall-clock
+ * progress interpolation, persistent client name, Apple Music-style UI.
  */
 
 Module.register("MMM-ShairportMetadata", {
@@ -14,23 +14,23 @@ Module.register("MMM-ShairportMetadata", {
   defaults: {
     metadataPipe: "/tmp/shairport-sync-metadata",
     alignment: "center",
-    sampleRate: 48000,   // Shairport Sync v5 / AirPlay 2 default. Use 44100 for classic AirPlay 1.
+    sampleRate: 48000,   // AirPlay 2 / Shairport v5 default. Use 44100 for classic AirPlay 1.
     hideAfter: 120,      // seconds without any update before hiding (0 = never)
-    showClient: true     // show "♪ <device>" line
+    showClient: true     // show the "playing from" device line
   },
 
   start: function () {
     Log.info("Starting module: " + this.name);
     this.metadata = {};
     this.albumart = null;
-    this.playing = false;      // true = playing, false = paused
-    this.stopped = true;       // true after 'pend' or before anything plays
-    this.baseSec = 0;          // elapsed seconds captured at the last anchor
-    this.anchor = this.now();  // wall-clock seconds at the last anchor
+    this.playing = false;
+    this.stopped = true;
+    this.baseSec = 0;
+    this.anchor = this.now();
     this.songLenSec = 0;
     this.lastUpdate = this.now();
+    this.glowColor = "rgba(140,80,200,0.28)";  // default glow until art loads
     this.sendSocketNotification("CONFIG", this.config);
-    // Re-render every second so the bar advances even between metadata updates.
     setInterval(() => { this.updateDom(0); }, 1000);
   },
 
@@ -38,9 +38,10 @@ Module.register("MMM-ShairportMetadata", {
     return new Date().getTime() / 1000;
   },
 
-  // Elapsed seconds to show right now: interpolated while playing, frozen while paused.
   elapsedNow: function () {
-    var e = this.playing ? this.baseSec + (this.now() - this.anchor) : this.baseSec;
+    var e = this.playing
+      ? this.baseSec + (this.now() - this.anchor)
+      : this.baseSec;
     if (e < 0) { e = 0; }
     if (this.songLenSec > 0 && e > this.songLenSec) { e = this.songLenSec; }
     return e;
@@ -50,7 +51,6 @@ Module.register("MMM-ShairportMetadata", {
     if (notification !== "DATA") { return; }
     this.lastUpdate = this.now();
 
-    // Empty object => stream stopped / disconnected.
     if (Object.keys(payload).length === 0) {
       this.playing = false;
       this.stopped = true;
@@ -60,55 +60,86 @@ Module.register("MMM-ShairportMetadata", {
       return;
     }
 
-    // Album art arrives on its own line.
     if (payload.hasOwnProperty("image")) {
       this.albumart = payload["image"] ? payload["image"] : null;
+      if (this.albumart) { this.extractGlow(this.albumart); }
+      else { this.glowColor = "rgba(140,80,200,0.28)"; }
       this.updateDom(0);
       return;
     }
 
-    // Any other non-empty payload means a live session.
     this.stopped = false;
 
-    // Play/pause transitions.
     var wasPlaying = this.playing;
     var nowPlaying = payload.hasOwnProperty("pause") ? !payload["pause"] : true;
     if (wasPlaying && !nowPlaying) {
-      // Pausing: freeze the bar exactly where it is.
       this.baseSec = this.elapsedNow();
       this.anchor = this.now();
     } else if (!wasPlaying && nowPlaying) {
-      // Resuming: keep the position, restart the clock.
       this.anchor = this.now();
     }
     this.playing = nowPlaying;
 
-    // Merge so a pause/resume-only message never wipes Title/Artist/client.
     this.metadata = Object.assign(this.metadata || {}, payload);
 
-    // New progress anchor whenever prgr arrives.
     if (payload.hasOwnProperty("prgr") && payload["prgr"] && payload["prgr"] !== "undefined") {
       var p = String(payload["prgr"]).split("/");
       if (p.length === 3) {
-        var start = parseInt(p[0], 10);
+        var start   = parseInt(p[0], 10);
         var current = parseInt(p[1], 10);
-        var end = parseInt(p[2], 10);
-        var rate = this.config.sampleRate || 48000;
-        this.baseSec = (current - start) / rate;
+        var end     = parseInt(p[2], 10);
+        var rate    = this.config.sampleRate || 48000;
+        this.baseSec    = (current - start) / rate;
         this.songLenSec = (end - start) / rate;
-        this.anchor = this.now();
+        this.anchor     = this.now();
       }
     }
 
     this.updateDom(0);
   },
 
+  // Sample the dominant colour from the album art and store as a CSS rgba string.
+  extractGlow: function (dataUrl) {
+    var self = this;
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var canvas = document.createElement("canvas");
+        canvas.width = 16; canvas.height = 16;   // tiny sample for speed
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, 16, 16);
+        var d = ctx.getImageData(0, 0, 16, 16).data;
+        var r = 0, g = 0, b = 0, count = 0;
+        for (var i = 0; i < d.length; i += 4) {
+          // Skip very dark and very desaturated pixels — they produce muddy glows.
+          var brightness = (d[i] + d[i+1] + d[i+2]) / 3;
+          var max = Math.max(d[i], d[i+1], d[i+2]);
+          var sat = max > 0 ? (max - Math.min(d[i], d[i+1], d[i+2])) / max : 0;
+          if (brightness > 20 && sat > 0.15) {
+            r += d[i]; g += d[i+1]; b += d[i+2]; count++;
+          }
+        }
+        if (count > 0) {
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+          self.glowColor = "rgba(" + r + "," + g + "," + b + ",0.35)";
+        } else {
+          self.glowColor = "rgba(140,80,200,0.28)";
+        }
+        // Update the card's glow variable live without a full DOM rebuild.
+        var card = document.querySelector(".MMM-ShairportMetadata .airplay-card");
+        if (card) { card.style.setProperty("--art-glow", self.glowColor); }
+      } catch (e) { /* tainted canvas (unlikely for data URLs) — ignore */ }
+    };
+    img.src = dataUrl;
+  },
+
   secToTime: function (sec) {
     sec = Math.max(0, Math.floor(sec));
     var min = Math.floor(sec / 60);
     var remain = sec % 60;
-    remain = (remain < 10) ? "0" + remain : "" + remain;
-    return min + ":" + remain;
+    return min + ":" + (remain < 10 ? "0" : "") + remain;
   },
 
   shouldHide: function () {
@@ -116,10 +147,13 @@ Module.register("MMM-ShairportMetadata", {
     return (this.now() > this.lastUpdate + this.config.hideAfter);
   },
 
+  getHeader: function () { return ""; },
+
   getDom: function () {
     var wrapper = document.createElement("div");
-    var alignment = (this.config.alignment === "left") ? "left"
-      : (this.config.alignment === "right") ? "right" : "center";
+    var alignment = this.config.alignment === "left" ? "left"
+      : this.config.alignment === "right" ? "right" : "center";
+    wrapper.style.textAlign = alignment;
 
     var hasTrack = this.metadata &&
       (this.metadata["Title"] || this.metadata["Artist"] || this.metadata["Album Name"]);
@@ -129,73 +163,88 @@ Module.register("MMM-ShairportMetadata", {
       return wrapper;
     }
 
-    wrapper.className = this.config.classes ? this.config.classes : "small";
-    wrapper.style.textAlign = alignment;
+    // ── Card ─────────────────────────────────────────────────────────────────
+    var card = document.createElement("div");
+    card.className = "airplay-card";
+    card.style.display = "inline-flex";   // shrink-wrap to content width
+    card.style.setProperty("--art-glow", this.glowColor);
 
-    var metadata = document.createElement("div");
-
-    // Album art
-    var imgtag = document.createElement("img");
+    // ── Album art ─────────────────────────────────────────────────────────────
+    var artWrap = document.createElement("div");
+    artWrap.className = this.albumart ? "albumart-wrap" : "albumart-wrap no-art";
     if (this.albumart) {
-      imgtag.setAttribute("src", this.albumart);
-      imgtag.setAttribute("style", "width:100px;height:100px;");
+      var img = document.createElement("img");
+      img.src = this.albumart;
+      artWrap.appendChild(img);
     }
-    imgtag.className = "albumart";
-    metadata.appendChild(imgtag);
-    metadata.appendChild(document.createElement("br"));
+    card.appendChild(artWrap);
 
-    // Progress bar
+    // ── Track info ────────────────────────────────────────────────────────────
+    var info = document.createElement("div");
+    info.className = "track-info";
+
+    var titleEl = document.createElement("div");
+    titleEl.className = "track-title";
+    titleEl.textContent = this.metadata["Title"] || "";
+    info.appendChild(titleEl);
+
+    var artistEl = document.createElement("div");
+    artistEl.className = "track-artist";
+    artistEl.textContent = this.metadata["Artist"] || "";
+    info.appendChild(artistEl);
+
+    if (this.metadata["Album Name"]) {
+      var albumEl = document.createElement("div");
+      albumEl.className = "track-album";
+      albumEl.textContent = this.metadata["Album Name"];
+      info.appendChild(albumEl);
+    }
+    card.appendChild(info);
+
+    // ── Progress ──────────────────────────────────────────────────────────────
     var elapsed = this.elapsedNow();
-    var total = this.songLenSec;
+    var total   = this.songLenSec;
+
+    var progWrap = document.createElement("div");
+    progWrap.className = "progress-wrap";
+
     var progressEl = document.createElement("progress");
     progressEl.id = "musicProgress";
     progressEl.setAttribute("value", elapsed);
     progressEl.setAttribute("max", total > 0 ? total : 1);
-    metadata.appendChild(progressEl);
-    metadata.appendChild(document.createElement("br"));
+    progWrap.appendChild(progressEl);
+    card.appendChild(progWrap);
 
-    var prgrLabel = document.createElement("label");
-    prgrLabel.setAttribute("for", "musicProgress");
-    prgrLabel.id = "progressLabel";
-    prgrLabel.innerHTML = this.secToTime(elapsed) + " - " + this.secToTime(total) +
-      (this.playing ? "" : " (paused)");
-    metadata.appendChild(prgrLabel);
+    // Time row: elapsed left, remaining/paused right
+    var times = document.createElement("div");
+    times.className = "progress-times";
 
-    // Title
-    var titletag = document.createElement("div");
-    if (this.metadata["Title"] && this.metadata["Title"].length > 30) {
-      titletag.style.fontSize = "10px";
+    var elapsedSpan = document.createElement("span");
+    elapsedSpan.textContent = this.secToTime(elapsed);
+    times.appendChild(elapsedSpan);
+
+    var rightSpan = document.createElement("span");
+    if (!this.playing) {
+      rightSpan.className = "paused-badge";
+      rightSpan.textContent = "paused";
+    } else {
+      // Show remaining time (negative style, like Apple Music)
+      var remaining = Math.max(0, total - elapsed);
+      rightSpan.textContent = "-" + this.secToTime(remaining);
     }
-    titletag.innerHTML = this.metadata["Title"] ? this.metadata["Title"] : "";
-    titletag.className = "bright";
-    metadata.appendChild(titletag);
+    times.appendChild(rightSpan);
+    card.appendChild(times);
 
-    // Artist - Album
-    var txt = "";
-    if (this.metadata["Artist"] || this.metadata["Album Name"]) {
-      txt = (this.metadata["Artist"] || "") + " - " + (this.metadata["Album Name"] || "");
-    }
-    var artisttag = document.createElement("div");
-    if (txt.length > 50) { artisttag.style.fontSize = "10px"; }
-    artisttag.innerHTML = txt;
-    artisttag.className = "xsmall";
-    metadata.appendChild(artisttag);
-
-    // Client (who's playing)
+    // ── Client line ───────────────────────────────────────────────────────────
     if (this.config.showClient && this.metadata["client"]) {
-      var clienttag = document.createElement("div");
-      clienttag.innerHTML = "&#9834; " + this.metadata["client"];
-      clienttag.className = "xsmall dimmed";
-      metadata.appendChild(clienttag);
+      var clientEl = document.createElement("div");
+      clientEl.className = "client-line";
+      clientEl.textContent = this.metadata["client"];
+      card.appendChild(clientEl);
     }
 
-    wrapper.appendChild(metadata);
+    wrapper.appendChild(card);
     return wrapper;
-  },
-
-  // Suppress the module header entirely (ignores any header set in config.js).
-  getHeader: function () {
-    return "";
   },
 
   getStyles: function () {
