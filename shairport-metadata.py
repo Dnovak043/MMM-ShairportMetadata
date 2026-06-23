@@ -104,9 +104,11 @@ if __name__ == "__main__":
             emit({"pause": True})
 
         # Stream ended / source disconnected -> hide.
+        # Note: client is intentionally NOT cleared here so the name persists
+        # across reconnects. A new snam/cmod will overwrite it if a different
+        # device connects.
         if typ == "ssnc" and code == "pend":
             metadata = {}
-            client = {}
             emit({})
 
         # Resume / begin / first-audio-frame -> definitely playing.
