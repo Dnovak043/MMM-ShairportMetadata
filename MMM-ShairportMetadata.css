@@ -156,6 +156,24 @@
   font-style: italic;
 }
 
+/* ---------- Client line ---------- */
+.MMM-ShairportMetadata .client-line {
+  margin-top: 16px;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.28);
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.MMM-ShairportMetadata .client-line::before {
+  content: "▶";
+  font-size: 9px;
+  opacity: 0.5;
+}
+
 /* ============================================================
    Enter / leave animations  (backInLeft / fadeOutLeft style)
    Only transform + opacity (compositor-friendly). will-change
@@ -187,4 +205,48 @@
   .MMM-ShairportMetadata .airplay-card.anim-in,
   .MMM-ShairportMetadata .airplay-card.anim-out { animation: none; }
   .MMM-ShairportMetadata .progress-fill { transition: none !important; }
+}
+
+/* ---------- Up next / recently played ---------- */
+.MMM-ShairportMetadata .track-list {
+  width: 100%;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+  text-align: left;
+}
+
+.MMM-ShairportMetadata .queue-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.30);
+  margin-bottom: 8px;
+}
+
+.MMM-ShairportMetadata .queue-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.MMM-ShairportMetadata .queue-title {
+  color: rgba(255,255,255,0.60);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.MMM-ShairportMetadata .queue-who {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(255,255,255,0.32);
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 1px 8px;
 }

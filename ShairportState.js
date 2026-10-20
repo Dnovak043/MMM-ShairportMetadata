@@ -16,6 +16,7 @@
 const bplist = require("bplist-parser");
 
 const NPI = "kMRMediaRemoteNowPlayingInfo";
+const HISTORY_LIMIT = 20;
 
 function emptyTrack() {
   return { id: null, title: "", artist: "", album: "", duration: 0, live: false, artwork: null };
@@ -33,6 +34,8 @@ function imageMime(buf) {
 class ShairportState {
 
   constructor() {
+    this.history = [];        // previous tracks, newest first; kept across sessions
+    this.artworkVersion = 0;
     this.reset();
   }
 
@@ -43,7 +46,23 @@ class ShairportState {
     this.track = emptyTrack();
     // Playback position: `elapsed` seconds at time `at` (ms), advancing at `rate`.
     this.anchor = { elapsed: 0, at: 0, rate: 0 };
-    this.artworkDirty = true;
+  }
+
+  // Moves the current track into the history.
+  pushHistory() {
+    var t = this.track;
+    if (!t.title) { return; }
+    this.history = this.history.filter(function (h) { return h.id !== t.id; });
+    this.history.unshift({ id: t.id, title: t.title, artist: t.artist });
+    this.history.length = Math.min(this.history.length, HISTORY_LIMIT);
+  }
+
+  startTrack(id, ms) {
+    this.pushHistory();
+    this.history = this.history.filter(function (h) { return h.id !== id; });
+    this.track = emptyTrack();
+    this.track.id = id;
+    this.anchor = { elapsed: 0, at: ms, rate: this.anchor.rate };
   }
 
   positionAt(ms) {
@@ -60,12 +79,13 @@ class ShairportState {
     var art = buf.length ? "data:" + imageMime(buf) + ";base64," + buf.toString("base64") : null;
     if (art !== this.track.artwork) {
       this.track.artwork = art;
-      this.artworkDirty = true;
+      this.artworkVersion += 1;
     }
   }
 
   end() {
     var wasActive = this.active;
+    this.pushHistory();
     this.reset();
     return wasActive;
   }
@@ -134,12 +154,7 @@ class ShairportState {
     // A new item resets everything. "replace" messages for the same item can
     // omit the artwork, so fields are only ever overwritten, never cleared.
     var id = get("ContentItemIdentifier");
-    if (id && id !== this.track.id) {
-      this.track = emptyTrack();
-      this.track.id = id;
-      this.artworkDirty = true;
-      this.anchor = { elapsed: 0, at: ms, rate: this.anchor.rate };
-    }
+    if (id && id !== this.track.id) { this.startTrack(id, ms); }
     if (typeof get("Title") === "string") { this.track.title = get("Title"); }
     if (typeof get("Artist") === "string") { this.track.artist = get("Artist"); }
     if (typeof get("Album") === "string") { this.track.album = get("Album"); }
@@ -187,25 +202,22 @@ class ShairportState {
   }
 
   /**
-   * The state to show. Artwork is included only when it changed since the
-   * last snapshot, or when `withArtwork` is set (e.g. for a reloaded browser).
+   * The state to show. `artworkId` changes whenever the artwork does; the
+   * image itself is `track.artwork` (a data URL, or null).
    */
-  snapshot(ms, withArtwork) {
-    if (!this.active || !this.track.title) { return { state: "stopped" }; }
-    var s = {
-      state: this.anchor.rate > 0 ? "playing" : "paused",
-      title: this.track.title,
-      artist: this.track.artist,
-      album: this.track.album,
-      duration: this.track.live ? 0 : this.track.duration,
-      position: this.positionAt(ms),
-      rate: this.anchor.rate
+  snapshot(ms) {
+    var active = this.active && !!this.track.title;
+    return {
+      active: active,
+      playing: active && this.anchor.rate > 0,
+      title: active ? this.track.title : "",
+      artist: active ? this.track.artist : "",
+      album: active ? this.track.album : "",
+      positionMs: active ? Math.round(this.positionAt(ms) * 1000) : 0,
+      durationMs: active && !this.track.live ? Math.round(this.track.duration * 1000) : 0,
+      artworkId: active && this.track.artwork ? this.track.id + ":" + this.artworkVersion : "",
+      history: this.history.map(function (h) { return { title: h.title, artist: h.artist }; })
     };
-    if (withArtwork || this.artworkDirty) {
-      s.artwork = this.track.artwork;
-      this.artworkDirty = false;
-    }
-    return s;
   }
 }
 

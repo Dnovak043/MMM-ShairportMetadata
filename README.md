@@ -30,13 +30,25 @@ modules: [
       mqttUrl: "mqtt://localhost:1883", // MQTT broker shairport-sync publishes to
       mqttTopic: "shairport",           // must match "topic" in shairport-sync's mqtt settings
       alignment: "center",              // Possible values [left|right|center]. Default: center
-      hideAfter: 0,                     // seconds paused before the card hides; 0 = hide only on disconnect
     }
   },
 ]
 ```
 
 The card appears when playback starts and hides as soon as the playing device disconnects.
+
+The attribution line and "Up next" list need data that shairport-sync's MQTT output doesn't carry (sender name, queue), so they stay hidden; "Recently played" lists the tracks this module has seen.
+
+| Option | Default | Description |
+|---|---|---|
+| `mqttUrl` | `mqtt://localhost:1883` | MQTT broker |
+| `mqttTopic` | `shairport` | shairport-sync's mqtt `topic` |
+| `alignment` | `center` | card alignment in its region |
+| `showHistory` | `true` | "Recently played" list under the card |
+| `queueLimit` | `4` | max rows in the list |
+| `driftResyncSec` | `2` | re-arm the progress bar only past this drift |
+| `leaveDurationMs` | `470` | length of the leave animation |
+| `showAttribution`, `showQueue`, `showQueuePosition` | `true` | attribution line, up-next list, queue position; no data over MQTT yet |
 
 ## Integration with shairport-sync
 shairport-sync must be built with MQTT support (`shairport-sync -V` lists `mqtt`). Example configuration:

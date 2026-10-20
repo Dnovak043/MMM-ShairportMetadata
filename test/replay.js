@@ -19,8 +19,7 @@ for (const line of lines) {
 	const code = topic.split("/").slice(1).join("/");
 	if (!state.handle(code, Buffer.from(hex, "hex"), ms)) { continue; }
 
-	const s = state.snapshot(ms, false);
-	if ("artwork" in s) { s.artwork = s.artwork ? "<" + s.artwork.length + " chars>" : null; }
-	if (typeof s.position === "number") { s.position = Math.round(s.position * 100) / 100; }
+	const s = state.snapshot(ms);
+	s.history = s.history.map(function (h) { return h.title; });
 	console.log((parseFloat(ts) - t0).toFixed(3).padStart(8), code.padEnd(10), JSON.stringify(s));
 }

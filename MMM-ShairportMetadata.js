@@ -1,13 +1,17 @@
 /* global Log, Module */
 
-/* Magic Mirror
+/* MagicMirror²
  * Module: MMM-ShairportMetadata
  *
- * By Prateek Sureka <surekap@gmail.com>  — MIT Licensed.
- * Progress bar forked by ChielChiel.
- * Smooth rendering: GPU compositor drives both the progress fill (one CSS
- * transition over the remaining song) and the enter/leave animations.
- * JS only handles state changes + cheap label text.
+ * Now-playing card: GPU-driven progress fill, ambient glow extracted from
+ * the art, enter/leave animations, attribution line and an up-next /
+ * recently played list.
+ *
+ * Data comes from shairport-sync over MQTT via node_helper. MQTT carries no
+ * sender name or queue, so the attribution line and "Up next" stay hidden;
+ * "Recently played" is the tracks seen by this module.
+ *
+ * MIT Licensed.
  */
 
 Module.register("MMM-ShairportMetadata", {
@@ -15,22 +19,28 @@ Module.register("MMM-ShairportMetadata", {
   defaults: {
     mqttUrl: "mqtt://localhost:1883",
     mqttTopic: "shairport",  // shairport-sync's mqtt "topic" setting
-    alignment: "center",
-    hideAfter: 0,        // seconds paused before hiding; 0 = hide only on disconnect
+    alignment: "center",   // left | right | center
+    showAttribution: true, // "via <sender>" / "added by <name>"
+    showQueuePosition: true, // "3 of 25 in queue" when the sender reports it
+    showQueue: true,       // up-next list with names
+    // Apple's up-next never reaches an AirPlay receiver (protocol limit) —
+    // when the queue is empty, show recent history instead:
+    showHistory: true,
+    queueLimit: 4,
+    driftResyncSec: 2,     // re-arm the GPU bar only past this drift
     leaveDurationMs: 470
   },
 
   start: function () {
     Log.info("Starting module: " + this.name);
-    this.metadata = {};
+    this.state = { active: false };
     this.albumart = null;
     this.playing = false;
     this.stopped = true;
+    this.trackKey = "";
     this.baseSec = 0;
     this.anchor = this.now();
-    this.rate = 1;
     this.songLenSec = 0;
-    this.lastUpdate = this.now();
     this.glowColor = "rgba(140,80,200,0.28)";
 
     this.cardEl = null;
@@ -43,16 +53,13 @@ Module.register("MMM-ShairportMetadata", {
     this.leaveTimer = null;
 
     this.sendSocketNotification("CONFIG", this.config);
-
-    // Cheap timer: updates only the time-label TEXT and the inactivity check.
-    // The bar itself is NOT driven here — the GPU animates it. 1s is plenty.
     setInterval(() => { this.tick(); }, 1000);
   },
 
   now: function () { return new Date().getTime() / 1000; },
 
   elapsedNow: function () {
-    var e = this.playing ? this.baseSec + (this.now() - this.anchor) * this.rate : this.baseSec;
+    var e = this.playing ? this.baseSec + (this.now() - this.anchor) : this.baseSec;
     if (e < 0) { e = 0; }
     if (this.songLenSec > 0 && e > this.songLenSec) { e = this.songLenSec; }
     return e;
@@ -65,49 +72,51 @@ Module.register("MMM-ShairportMetadata", {
     return min + ":" + (remain < 10 ? "0" : "") + remain;
   },
 
-  shouldHide: function () {
-    // While playing there are no updates between tracks, so only time out pauses.
-    if (!this.config.hideAfter || this.playing) { return false; }
-    return (this.now() > this.lastUpdate + this.config.hideAfter);
-  },
-
   getHeader: function () { return ""; },
 
-  // payload: { state: "stopped" } or
-  // { state: "playing"|"paused", title, artist, album, duration, position, rate,
-  //   artwork? }  — times in seconds; artwork (data URL or null) only when it changed.
   socketNotificationReceived: function (notification, payload) {
-    if (notification !== "STATE") { return; }
-    this.lastUpdate = this.now();
-
-    if (payload.hasOwnProperty("artwork")) {
-      this.albumart = payload.artwork || null;
+    if (notification === "ARTWORK") {
+      this.albumart = payload.dataUrl || null;
       if (this.albumart) { this.extractGlow(this.albumart); }
       else { this.setGlow("rgba(140,80,200,0.28)"); }
       if (this.visible && this.artImg) { this.applyArt(); }
-    }
-
-    if (payload.state === "stopped") {
-      this.metadata = {};
-      this.beginLeave();
       return;
     }
+    if (notification !== "STATE") { return; }
 
+    if (!payload.active) {
+      this.state = payload;
+      if (this.visible) { this.beginLeave(); }
+      return;
+    }
     if (this.leaving) { this.cancelLeave(); }
     this.stopped = false;
 
-    this.metadata = payload;
-    this.playing = payload.state === "playing";
-    this.rate = payload.rate > 0 ? payload.rate : 1;
-    this.baseSec = payload.position || 0;
-    this.songLenSec = payload.duration || 0;
-    this.anchor = this.now();
+    var key = payload.title + "|" + payload.artist;
+    var trackChanged = key !== this.trackKey;
+    var playChanged = payload.playing !== this.playing;
+    this.trackKey = key;
+    this.state = payload;
+    this.playing = payload.playing;
+
+    // Anchor progress from the reported position; only re-arm the GPU bar
+    // on track change, play/pause, or real drift — never per update.
+    var reportedSec = (payload.positionMs || 0) / 1000;
+    var drift = Math.abs(this.elapsedNow() - reportedSec);
+    var needSync = trackChanged || playChanged ||
+      drift > (this.config.driftResyncSec || 2);
+    if (needSync) {
+      this.baseSec = reportedSec;
+      this.anchor = this.now();
+      this.songLenSec = (payload.durationMs || 0) / 1000;
+    }
+    if (trackChanged) { this.albumart = null; }
 
     if (!this.visible) {
       this.appearing = true;
       this.updateDom(0);
     } else {
-      this.updateCardContent();
+      this.updateCardContent(needSync);
     }
   },
 
@@ -134,14 +143,10 @@ Module.register("MMM-ShairportMetadata", {
   },
 
   tick: function () {
-    if (this.visible && !this.leaving && this.shouldHide()) {
-      this.metadata = {}; this.beginLeave(); return;
-    }
     if (!this.visible || this.leaving || this.stopped) { return; }
     this.renderLabels();
   },
 
-  // Text only — never touches the bar.
   renderLabels: function () {
     if (!this.refs.elapsedSpan) { return; }
     var total = this.songLenSec;
@@ -150,36 +155,40 @@ Module.register("MMM-ShairportMetadata", {
     if (!this.playing) {
       this.refs.rightSpan.className = "paused-badge";
       this.refs.rightSpan.textContent = "paused";
+    } else if (total > 0) {
+      this.refs.rightSpan.className = "";
+      this.refs.rightSpan.textContent = "-" + this.secToTime(Math.max(0, total - elapsed));
     } else {
       this.refs.rightSpan.className = "";
-      this.refs.rightSpan.textContent = total > 0 ? "-" + this.secToTime(Math.max(0, total - elapsed)) : "";
+      this.refs.rightSpan.textContent = "";
     }
   },
 
-  // The smooth bit: one compositor transition from the current position to the
-  // end over the remaining duration. No per-frame JS.
+  // One compositor transition from current position to the end over the
+  // remaining duration — no per-frame JS (from MMM-ShairportMetadata).
   syncBar: function () {
     var fill = this.refs.fillEl;
-    if (!fill || this.songLenSec <= 0) { return; }
+    if (!fill) { return; }
+    if (this.songLenSec <= 0) {  // radio/live: keep the bar empty
+      fill.style.transition = "none";
+      fill.style.transform = "scaleX(0)";
+      return;
+    }
     var total = this.songLenSec;
     var elapsed = this.elapsedNow();
     var f = Math.max(0, Math.min(1, elapsed / total));
 
-    // Freeze at the current position (no transition), and force the browser to
-    // commit it before we arm the long transition.
     fill.style.transition = "none";
     fill.style.transform = "scaleX(" + f + ")";
-    void fill.offsetWidth;  // reflow
+    void fill.offsetWidth;  // commit the frozen state
 
     if (this.playing) {
       var remaining = Math.max(0, total - elapsed);
       var self = this;
-      // Two rAFs so the frozen state paints first; otherwise the transition
-      // won't run (this also covers the just-built-not-yet-inserted case).
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
           if (!self.playing || !self.refs.fillEl) { return; }
-          self.refs.fillEl.style.transition = "transform " + (remaining / self.rate) + "s linear";
+          self.refs.fillEl.style.transition = "transform " + remaining + "s linear";
           self.refs.fillEl.style.transform = "scaleX(1)";
         });
       });
@@ -198,19 +207,79 @@ Module.register("MMM-ShairportMetadata", {
     }
   },
 
-  updateCardContent: function () {
+  attributionText: function () {
+    if (!this.config.showAttribution) { return ""; }
+    var who = "";
+    if (this.state.airplay && this.state.sender) { who = "via " + this.state.sender; }
+    else if (this.state.addedBy && this.state.addedBy !== "cli") {
+      who = "added by " + this.state.addedBy;
+    }
+    // Sender-pushed queue position ("3 of 25") — the protocol never
+    // transmits the upcoming titles themselves.
+    if (this.config.showQueuePosition !== false && this.state.queueCount > 0) {
+      var pos = (this.state.queueIndex || 0) + 1 + " of " +
+        this.state.queueCount + " in queue";
+      who = who ? who + "  ·  " + pos : pos;
+    }
+    return who;
+  },
+
+  updateCardContent: function (needSync) {
     if (!this.cardEl) { return; }
-    this.refs.titleEl.textContent = this.metadata.title || "";
-    this.refs.artistEl.textContent = this.metadata.artist || "";
-    var album = this.metadata.album || "";
+    this.refs.titleEl.textContent = this.state.title || "";
+    this.refs.artistEl.textContent = this.state.artist || "";
+    var album = this.state.album || "";
     this.refs.albumEl.textContent = album;
     this.refs.albumEl.style.display = album ? "" : "none";
     this.applyArt();
     this.setGlow(this.glowColor);
-    // No bar for live streams or senders that give no duration.
-    this.refs.progWrap.style.display = this.songLenSec > 0 ? "" : "none";
+
+    var who = this.attributionText();
+    this.refs.clientEl.textContent = who;
+    this.refs.clientEl.style.display = who ? "" : "none";
+
+    this.renderQueue();
     this.renderLabels();
-    this.syncBar();
+    if (needSync !== false) { this.syncBar(); }
+  },
+
+  renderQueue: function () {
+    var box = this.refs.queueEl;
+    if (!box) { return; }
+    var items = (this.config.showQueue && this.state.queue) ? this.state.queue : [];
+    var heading = "Up next";
+    if (items.length === 0 && this.config.showHistory && this.state.history &&
+        this.state.history.length > 0) {
+      items = this.state.history;   // Apple's up-next is invisible to
+      heading = "Recently played";  // receivers — show history
+    }
+    items = items.slice(0, this.config.queueLimit);
+    if (items.length === 0) {
+      box.style.display = "none";
+      box.innerHTML = "";
+      return;
+    }
+    box.style.display = "";
+    box.innerHTML = "";
+    var head = document.createElement("div");
+    head.className = "queue-head";
+    head.textContent = heading;
+    box.appendChild(head);
+    items.forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "queue-row";
+      var t = document.createElement("span");
+      t.className = "queue-title";
+      t.textContent = item.title + (item.artist ? " — " + item.artist : "");
+      row.appendChild(t);
+      if (item.addedBy && item.addedBy !== "cli") {
+        var w = document.createElement("span");
+        w.className = "queue-who";
+        w.textContent = item.addedBy;
+        row.appendChild(w);
+      }
+      box.appendChild(row);
+    });
   },
 
   setGlow: function (c) {
@@ -290,10 +359,16 @@ Module.register("MMM-ShairportMetadata", {
     times.appendChild(elapsedSpan); times.appendChild(rightSpan);
     card.appendChild(times);
 
+    var clientEl = document.createElement("div"); clientEl.className = "client-line";
+    card.appendChild(clientEl);
+
+    var queueEl = document.createElement("div"); queueEl.className = "track-list";
+    card.appendChild(queueEl);
+
     this.cardEl = card;
     this.artWrap = artWrap;
     this.artImg = img;
-    this.refs = { titleEl, artistEl, albumEl, progWrap, fillEl, elapsedSpan, rightSpan };
+    this.refs = { titleEl, artistEl, albumEl, fillEl, elapsedSpan, rightSpan, clientEl, queueEl };
 
     this.updateCardContent();
 
