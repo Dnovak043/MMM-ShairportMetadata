@@ -41,7 +41,6 @@ class ShairportState {
 
   reset() {
     this.active = false;      // a play session is in progress
-    this.clientIp = null;     // address of the connected sender, for matching ssnc/disc
     this.coplSeen = false;    // sender provides MediaRemote now-playing info
     this.track = emptyTrack();
     // Playback position: `elapsed` seconds at time `at` (ms), advancing at `rate`.
@@ -96,16 +95,9 @@ class ShairportState {
    */
   handle(code, payload, ms) {
     switch (code) {
-      case "ssnc/conn":
-      case "ssnc/clip":
-        this.clientIp = text(payload);
-        return false;
-
-      // The sender disconnected. pend follows ~20 s later, which is too slow.
-      case "ssnc/disc":
-        if (this.clientIp && text(payload) !== this.clientIp) { return false; }
-        return this.end();
-
+      // End of the play session: arrives (with ssnc/disc) as soon as the
+      // sender disconnects. A lone ssnc/disc is not an end: the phone also
+      // drops a secondary connection mid-song while the music keeps playing.
       case "ssnc/pend":
       case "ssnc/aend":
         return this.end();
