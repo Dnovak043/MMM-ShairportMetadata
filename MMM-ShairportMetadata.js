@@ -28,6 +28,7 @@ Module.register("MMM-ShairportMetadata", {
     showHistory: true,
     queueLimit: 4,
     showVolume: true,      // sender's volume slider, once shairport-sync reports it
+    volumeHideAfterMs: 3000, // show the slider on a change, then fade it out; 0 = always shown
     driftResyncSec: 2,     // re-arm the GPU bar only past this drift
     leaveDurationMs: 470
   },
@@ -52,6 +53,8 @@ Module.register("MMM-ShairportMetadata", {
     this.appearing = false;
     this.leaving = false;
     this.leaveTimer = null;
+    this.lastVolume = null;
+    this.volumeTimer = null;
 
     this.sendSocketNotification("CONFIG", this.config);
     setInterval(() => { this.tick(); }, 1000);
@@ -245,17 +248,34 @@ Module.register("MMM-ShairportMetadata", {
     if (needSync !== false) { this.syncBar(); }
   },
 
+  // Like Apple's now-playing screen: the slider slides open when the volume
+  // changes and folds away again after a few seconds, the rows below
+  // following it. The first volume of a session only sets the level.
   renderVolume: function () {
     var row = this.refs.volumeEl;
     if (!row) { return; }
     var v = this.state.volume;
+    var prev = this.lastVolume;
+    this.lastVolume = v;
     if (!this.config.showVolume || typeof v !== "number") {
-      row.style.display = "none";
+      this.hideVolume();
       return;
     }
-    row.style.display = "";
     row.classList.toggle("muted", v === 0);
     this.refs.volumeFill.style.transform = "scaleX(" + v + ")";
+
+    var hideAfter = this.config.volumeHideAfterMs;
+    if (!hideAfter) { row.classList.add("shown"); return; }
+    if (typeof prev !== "number" || v === prev) { return; }
+    row.classList.add("shown");
+    if (this.volumeTimer) { clearTimeout(this.volumeTimer); }
+    var self = this;
+    this.volumeTimer = setTimeout(function () { self.hideVolume(); }, hideAfter);
+  },
+
+  hideVolume: function () {
+    if (this.volumeTimer) { clearTimeout(this.volumeTimer); this.volumeTimer = null; }
+    if (this.refs.volumeEl) { this.refs.volumeEl.classList.remove("shown"); }
   },
 
   renderQueue: function () {

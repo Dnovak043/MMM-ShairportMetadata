@@ -162,7 +162,30 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Folded away: no height, so the rows below sit right under the times */
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  transform: scale(0.94);
+  /* Leaving: fade first, then close the gap */
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease,
+    max-height 0.4s cubic-bezier(0.32, 0.72, 0, 1) 0.15s,
+    margin-top 0.4s cubic-bezier(0.32, 0.72, 0, 1) 0.15s;
+}
+
+.MMM-ShairportMetadata .volume-row.shown {
+  max-height: 20px;
   margin-top: 14px;
+  opacity: 1;
+  transform: scale(1);
+  /* Entering: open the gap, then fade in */
+  transition:
+    max-height 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+    margin-top 0.35s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.3s ease 0.1s,
+    transform 0.35s cubic-bezier(0.34, 1.30, 0.64, 1) 0.05s;
 }
 
 .MMM-ShairportMetadata .volume-track {
@@ -227,7 +250,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .MMM-ShairportMetadata .volume-fill { transition: none; }
+  .MMM-ShairportMetadata .volume-fill,
+  .MMM-ShairportMetadata .volume-row,
+  .MMM-ShairportMetadata .volume-row.shown { transition: none; }
 }
 
 /* ---------- Client line ---------- */
