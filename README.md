@@ -44,6 +44,7 @@ The attribution line and "Up next" list need data that shairport-sync's MQTT out
 | `mqttUrl` | `mqtt://localhost:1883` | MQTT broker |
 | `mqttTopic` | `shairport` | shairport-sync's mqtt `topic` |
 | `alignment` | `center` | card alignment in its region |
+| `height` | `700` | px reserved for the card, which sits at the top of it, so it stays put while the volume bar and list grow below it (in a `bottom_*` region it would otherwise grow upward). Raise it if you raise `queueLimit`; `0` = no reserve |
 | `showHistory` | `true` | "Recently played" list under the card |
 | `queueLimit` | `4` | max rows in the list |
 | `showVolume` | `true` | volume bar showing the sender's volume slider (`ssnc/pvol`) |

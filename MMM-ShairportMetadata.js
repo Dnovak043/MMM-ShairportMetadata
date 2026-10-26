@@ -20,6 +20,12 @@ Module.register("MMM-ShairportMetadata", {
     mqttUrl: "mqtt://localhost:1883",
     mqttTopic: "shairport",  // shairport-sync's mqtt "topic" setting
     alignment: "center",   // left | right | center
+    // Fixed height (px) reserved for the card, which sits at its top. In a
+    // bottom region the card would otherwise grow upward as the volume bar
+    // opens or the list fills; this keeps it in place and lets those grow
+    // down into the spare room. 700 fits the volume bar plus 4 list rows.
+    // 0 = no reserve.
+    height: 700,
     showAttribution: true, // "via <sender>" / "added by <name>"
     showQueuePosition: true, // "3 of 25 in queue" when the sender reports it
     showQueue: true,       // up-next list with names
@@ -355,6 +361,10 @@ Module.register("MMM-ShairportMetadata", {
     wrapper.style.textAlign =
       this.config.alignment === "left" ? "left"
         : this.config.alignment === "right" ? "right" : "center";
+
+    if (this.config.height > 0) {
+      wrapper.style.height = this.config.height + "px";
+    }
 
     if (this.stopped && !this.leaving) {
       this.cardEl = null; this.artWrap = null; this.artImg = null;
