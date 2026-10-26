@@ -156,6 +156,80 @@
   font-style: italic;
 }
 
+/* ---------- Volume (sender's slider, from ssnc/pvol) ---------- */
+.MMM-ShairportMetadata .volume-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.MMM-ShairportMetadata .volume-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.MMM-ShairportMetadata .volume-fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.55);
+  border-radius: 2px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.25s ease-out;
+  will-change: transform;
+}
+
+/* Speaker glyphs drawn with borders: a cone, plus waves on the loud end */
+.MMM-ShairportMetadata .volume-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 14px;
+  height: 12px;
+}
+
+.MMM-ShairportMetadata .volume-icon::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 6px solid transparent;
+  border-right: 7px solid rgba(255,255,255,0.40);
+  border-left: 0;
+  width: 0;
+  height: 0;
+}
+
+.MMM-ShairportMetadata .volume-icon.low { width: 9px; }
+
+.MMM-ShairportMetadata .volume-icon.high::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 8px;
+  height: 10px;
+  border: 1.5px solid rgba(255,255,255,0.40);
+  border-left: 0;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 0 50% 50% 0;
+  box-sizing: border-box;
+}
+
+.MMM-ShairportMetadata .volume-row.muted .volume-icon.low::before {
+  border-right-color: rgba(252,60,68,0.75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .MMM-ShairportMetadata .volume-fill { transition: none; }
+}
+
 /* ---------- Client line ---------- */
 .MMM-ShairportMetadata .client-line {
   margin-top: 16px;

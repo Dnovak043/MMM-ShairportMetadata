@@ -63,6 +63,7 @@ module.exports = NodeHelper.create({
 			airplay: s.active,
 			positionMs: s.positionMs,
 			durationMs: s.durationMs,
+			volume: s.volume,
 			artworkId: s.artworkId,
 			queue: [],           // no up-next over MQTT
 			history: s.history,

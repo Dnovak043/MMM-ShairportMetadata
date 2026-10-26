@@ -27,6 +27,7 @@ Module.register("MMM-ShairportMetadata", {
     // when the queue is empty, show recent history instead:
     showHistory: true,
     queueLimit: 4,
+    showVolume: true,      // sender's volume slider, once shairport-sync reports it
     driftResyncSec: 2,     // re-arm the GPU bar only past this drift
     leaveDurationMs: 470
   },
@@ -238,9 +239,23 @@ Module.register("MMM-ShairportMetadata", {
     this.refs.clientEl.textContent = who;
     this.refs.clientEl.style.display = who ? "" : "none";
 
+    this.renderVolume();
     this.renderQueue();
     this.renderLabels();
     if (needSync !== false) { this.syncBar(); }
+  },
+
+  renderVolume: function () {
+    var row = this.refs.volumeEl;
+    if (!row) { return; }
+    var v = this.state.volume;
+    if (!this.config.showVolume || typeof v !== "number") {
+      row.style.display = "none";
+      return;
+    }
+    row.style.display = "";
+    row.classList.toggle("muted", v === 0);
+    this.refs.volumeFill.style.transform = "scaleX(" + v + ")";
   },
 
   renderQueue: function () {
@@ -359,6 +374,15 @@ Module.register("MMM-ShairportMetadata", {
     times.appendChild(elapsedSpan); times.appendChild(rightSpan);
     card.appendChild(times);
 
+    var volumeEl = document.createElement("div"); volumeEl.className = "volume-row";
+    var volLow = document.createElement("span"); volLow.className = "volume-icon low";
+    var volTrack = document.createElement("div"); volTrack.className = "volume-track";
+    var volumeFill = document.createElement("div"); volumeFill.className = "volume-fill";
+    var volHigh = document.createElement("span"); volHigh.className = "volume-icon high";
+    volTrack.appendChild(volumeFill);
+    volumeEl.appendChild(volLow); volumeEl.appendChild(volTrack); volumeEl.appendChild(volHigh);
+    card.appendChild(volumeEl);
+
     var clientEl = document.createElement("div"); clientEl.className = "client-line";
     card.appendChild(clientEl);
 
@@ -368,7 +392,7 @@ Module.register("MMM-ShairportMetadata", {
     this.cardEl = card;
     this.artWrap = artWrap;
     this.artImg = img;
-    this.refs = { titleEl, artistEl, albumEl, fillEl, elapsedSpan, rightSpan, clientEl, queueEl };
+    this.refs = { titleEl, artistEl, albumEl, fillEl, elapsedSpan, rightSpan, volumeEl, volumeFill, clientEl, queueEl };
 
     this.updateCardContent();
 

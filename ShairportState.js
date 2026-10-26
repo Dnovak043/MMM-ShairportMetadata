@@ -42,6 +42,7 @@ class ShairportState {
   reset() {
     this.active = false;      // a play session is in progress
     this.coplSeen = false;    // sender provides MediaRemote now-playing info
+    this.volume = null;       // sender's volume slider, 0..1 (0 = muted); null until known
     this.track = emptyTrack();
     // Playback position: `elapsed` seconds at time `at` (ms), advancing at `rate`.
     this.anchor = { elapsed: 0, at: 0, rate: 0 };
@@ -124,6 +125,9 @@ class ShairportState {
 
       case "ssnc/copl":
         return this.handleNowPlaying(payload, ms);
+
+      case "ssnc/pvol":
+        return this.handleVolume(payload);
     }
 
     if (this.coplSeen) { return false; }
@@ -169,6 +173,16 @@ class ShairportState {
     return true;
   }
 
+  // "airplay_volume,volume,lowest_volume,highest_volume", e.g.
+  // "-24.06,-24.06,-96.30,0.00". airplay_volume is the sender's slider:
+  // 0.0 is full, -30.0 the lowest step and -144.0 muted.
+  handleVolume(payload) {
+    var v = parseFloat(text(payload).split(",")[0]);
+    if (isNaN(v)) { return false; }
+    this.volume = v <= -30 ? 0 : Math.min(1, (v + 30) / 30);
+    return true;
+  }
+
   handleClassic(code, payload, ms) {
     switch (code) {
       case "core/minm": this.track.title = text(payload); return true;
@@ -207,6 +221,7 @@ class ShairportState {
       album: active ? this.track.album : "",
       positionMs: active ? Math.round(this.positionAt(ms) * 1000) : 0,
       durationMs: active && !this.track.live ? Math.round(this.track.duration * 1000) : 0,
+      volume: active ? this.volume : null,
       artworkId: active && this.track.artwork ? this.track.id + ":" + this.artworkVersion : "",
       history: this.history.map(function (h) { return { title: h.title, artist: h.artist }; })
     };

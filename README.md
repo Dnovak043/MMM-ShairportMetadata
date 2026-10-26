@@ -46,6 +46,7 @@ The attribution line and "Up next" list need data that shairport-sync's MQTT out
 | `alignment` | `center` | card alignment in its region |
 | `showHistory` | `true` | "Recently played" list under the card |
 | `queueLimit` | `4` | max rows in the list |
+| `showVolume` | `true` | volume bar showing the sender's volume slider (`ssnc/pvol`) |
 | `driftResyncSec` | `2` | re-arm the progress bar only past this drift |
 | `leaveDurationMs` | `470` | length of the leave animation |
 | `showAttribution`, `showQueue`, `showQueuePosition` | `true` | attribution line, up-next list, queue position; no data over MQTT yet |
