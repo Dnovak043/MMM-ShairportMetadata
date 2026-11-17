@@ -52,6 +52,13 @@ The attribution line and "Up next" list need data that shairport-sync's MQTT out
 | `driftResyncSec` | `2` | re-arm the progress bar only past this drift |
 | `leaveDurationMs` | `470` | length of the leave animation |
 | `showAttribution`, `showQueue`, `showQueuePosition` | `true` | attribution line, up-next list, queue position; no data over MQTT yet |
+| `disconnectOnSuspend` | `false` | what `node_helper` does while the module is hidden, see below |
+
+## While hidden
+When another module hides this one (`module.hide()`), MagicMirror calls `suspend()` and the front end stops completely: the one-second clock, the volume and leave timers and the progress bar's animation all stop, and `node_helper` sends it nothing. `resume()` starts them again and asks `node_helper` for the current state.
+
+- `disconnectOnSuspend: false` (default): `node_helper` keeps its MQTT connection and keeps track of what is playing, so the card is correct as soon as the module is shown again. It only does work when shairport-sync publishes something.
+- `disconnectOnSuspend: true`: `node_helper` also disconnects from the broker, so nothing runs at all. shairport-sync does not repeat what was missed, so after a resume the card stays away until the sender's next now-playing update (usually the next track change, play or pause), and tracks played while hidden are missing from "Recently played".
 
 ## Integration with shairport-sync
 shairport-sync must be built with MQTT support (`shairport-sync -V` lists `mqtt`). Example configuration:

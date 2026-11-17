@@ -36,7 +36,15 @@ Module.register("MMM-ShairportMetadata", {
     showVolume: true,      // sender's volume slider, once shairport-sync reports it
     volumeHideAfterMs: 3000, // show the slider on a change, then fade it out; 0 = always shown
     driftResyncSec: 2,     // re-arm the GPU bar only past this drift
-    leaveDurationMs: 470
+    leaveDurationMs: 470,
+    // While the module is hidden (suspend) the front end always stops
+    // completely and node_helper sends it nothing.
+    // false = node_helper keeps listening to MQTT, so the card is right the
+    //         moment the module is shown again.
+    // true  = node_helper also disconnects from MQTT. Nothing runs at all,
+    //         but what happened while hidden is lost: the card stays away
+    //         after a resume until the sender's next now-playing update.
+    disconnectOnSuspend: false
   },
 
   start: function () {
@@ -61,9 +69,53 @@ Module.register("MMM-ShairportMetadata", {
     this.leaveTimer = null;
     this.lastVolume = null;
     this.volumeTimer = null;
+    this.tickTimer = null;
+    this.suspended = false;
+    this.forceSync = false;   // re-arm the bar on the first state after a resume
 
     this.sendSocketNotification("CONFIG", this.config);
-    setInterval(() => { this.tick(); }, 1000);
+    this.startTick();
+  },
+
+  startTick: function () {
+    if (this.tickTimer !== null) { return; }
+    this.tickTimer = setInterval(() => { this.tick(); }, 1000);
+  },
+
+  stopTick: function () {
+    if (this.tickTimer === null) { return; }
+    clearInterval(this.tickTimer);
+    this.tickTimer = null;
+  },
+
+  // Hidden: stop everything. No timer, animation or DOM update runs, and
+  // node_helper is told to stop sending, until resume().
+  suspend: function () {
+    if (this.suspended) { return; }
+    this.suspended = true;
+
+    this.sendSocketNotification("SUSPEND", this.config);
+    this.stopTick();
+    this.hideVolume();   // clears its timer
+
+    // A leave animation in progress: finish it now instead of on its timer.
+    if (this.leaving) {
+      this.cancelLeave();
+      this.stopped = true; this.playing = false;
+      this.updateDom(0);
+    }
+    this.freezeBar();
+  },
+
+  // Shown again: restart the clock and ask node_helper for the current
+  // state, which re-arms the progress bar when it arrives.
+  resume: function () {
+    if (!this.suspended) { return; }
+    this.suspended = false;
+    this.forceSync = true;
+    this.lastVolume = null;   // a volume change made while hidden only sets the level
+    this.startTick();
+    this.sendSocketNotification("RESUME", this.config);
   },
 
   now: function () { return new Date().getTime() / 1000; },
@@ -85,6 +137,7 @@ Module.register("MMM-ShairportMetadata", {
   getHeader: function () { return ""; },
 
   socketNotificationReceived: function (notification, payload) {
+    if (this.suspended) { return; }   // resume() asks for the full state again
     if (notification === "ARTWORK") {
       this.albumart = payload.dataUrl || null;
       if (this.albumart) { this.extractGlow(this.albumart); }
@@ -113,8 +166,9 @@ Module.register("MMM-ShairportMetadata", {
     // on track change, play/pause, or real drift — never per update.
     var reportedSec = (payload.positionMs || 0) / 1000;
     var drift = Math.abs(this.elapsedNow() - reportedSec);
-    var needSync = trackChanged || playChanged ||
+    var needSync = trackChanged || playChanged || this.forceSync ||
       drift > (this.config.driftResyncSec || 2);
+    this.forceSync = false;
     if (needSync) {
       this.baseSec = reportedSec;
       this.anchor = this.now();
@@ -174,11 +228,22 @@ Module.register("MMM-ShairportMetadata", {
     }
   },
 
+  // Stops the bar's running transition where it is. syncBar() re-arms it.
+  freezeBar: function () {
+    var fill = this.refs.fillEl;
+    if (!fill) { return; }
+    var f = this.songLenSec > 0
+      ? Math.max(0, Math.min(1, this.elapsedNow() / this.songLenSec)) : 0;
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(" + f + ")";
+  },
+
   // One compositor transition from current position to the end over the
   // remaining duration — no per-frame JS (from MMM-ShairportMetadata).
   syncBar: function () {
     var fill = this.refs.fillEl;
     if (!fill) { return; }
+    if (this.suspended) { this.freezeBar(); return; }
     if (this.songLenSec <= 0) {  // radio/live: keep the bar empty
       fill.style.transition = "none";
       fill.style.transform = "scaleX(0)";
@@ -197,7 +262,7 @@ Module.register("MMM-ShairportMetadata", {
       var self = this;
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
-          if (!self.playing || !self.refs.fillEl) { return; }
+          if (!self.playing || self.suspended || !self.refs.fillEl) { return; }
           self.refs.fillEl.style.transition = "transform " + remaining + "s linear";
           self.refs.fillEl.style.transform = "scaleX(1)";
         });
